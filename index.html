@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SolarSense – UV & Wetter</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --radius: 16px;
+    }
+    body {
+      margin: 0; font-family: system-ui, sans-serif;
+      color: var(--text); background: var(--bg);
+      transition: background 1s ease;
+    }
+    header { padding: 14px; text-align: center; font-weight: bold; }
+    .container { max-width: 900px; margin: 0 auto; padding: 16px; }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border-radius: var(--radius);
+      padding: 16px; margin-bottom: 16px;
+    }
+    .field { margin-bottom: 12px; }
+    label { font-size: 13px; color: var(--muted); display:block; margin-bottom:4px; }
+    input, select {
+      width: 100%; padding: 8px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.05); color: var(--text);
+    }
+    .btn {
+      background: var(--primary); color: white; border: none;
+      padding: 8px 12px; border-radius: 8px; cursor: pointer;
+    }
+    .metrics { display: flex; gap: 12px; flex-wrap: wrap; }
+    .metric { flex:1; background: rgba(255,255,255,0.08); padding: 12px; border-radius: 8px; text-align:center; }
+    .metric .label { font-size: 12px; color: var(--muted); }
+    .metric .value { font-size: 20px; font-weight: bold; }
+    .timer { font-size: 24px; margin: 12px 0; }
+    .progress { height: 12px; background: rgba(255,255,255,0.1); border-radius: 999px; overflow:hidden; }
+    .progress .bar { height:100%; width:0%; background: var(--primary); transition: width 0.3s; }
+    .status { font-size: 13px; color: var(--muted); margin-top:6px; }
+  </style>
+</head>
+<body>
+  <header>🌞 SolarSense – UV & Wetter</header>
+  <div class="container">
+    <div class="card">
+      <div class="field">
+        <label>Ort eingeben (z. B. Hamburg)</label>
+        <input type="text" id="city" placeholder="Stadtname" />
+      </div>
+      <button class="btn" id="loadBtn">Wetter laden</button>
+    </div>
+
+    <div class="card" id="weatherCard">
+      <h3>Aktuelles Wetter</h3>
+      <div class="metrics">
+        <div class="metric"><div class="label">Temperatur</div><div class="value" id="temp">–</div></div>
+        <div class="metric"><div class="label">Wetter</div><div class="value" id="weather">–</div></div>
+        <div class="metric"><div class="label">UV Index</div><div class="value" id="uv">–</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Empfehlung</h3>
+      <div id="advice">Bitte Ort eingeben.</div>
+    </div>
+
+    <div class="card">
+      <h3>Timer & Ziel</h3>
+      <div class="timer" id="timer">00:00:00</div>
+      <button class="btn" id="startBtn">Start</button>
+      <button class="btn" id="stopBtn" disabled>Stop</button>
+      <button class="btn" id="resetBtn" disabled>Reset</button>
+      <div class="progress"><div class="bar" id="progressBar"></div></div>
+      <div class="status" id="progressText">0 / 30 min</div>
+    </div>
+  </div>
+
+  <script>
+    const el = {
+      city: document.getElementById('city'),
+      loadBtn: document.getElementById('loadBtn'),
+      temp: document.getElementById('temp'),
+      weather: document.getElementById('weather'),
+      uv: document.getElementById('uv'),
+      advice: document.getElementById('advice'),
+      timer: document.getElementById('timer'),
+      startBtn: document.getElementById('startBtn'),
+      stopBtn: document.getElementById('stopBtn'),
+      resetBtn: document.getElementById('resetBtn'),
+      progressBar: document.getElementById('progressBar'),
+      progressText: document.getElementById('progressText'),
+    };
+
+    // Timer state
+    let timerRunning = false, startTime = null, elapsed = 0, goal = 30, tick;
+
+    function fmt(ms){
+      const s=Math.floor(ms/1000);
+      const h=String(Math.floor(s/3600)).padStart(2,'0');
+      const m=String(Math.floor((s%3600)/60)).padStart(2,'0');
+      const sec=String(s%60).padStart(2,'0');
+      return `${h}:${m}:${sec}`;
+    }
+
+    function startTimer(){
+      if(timerRunning) return;
+      timerRunning=true; startTime=Date.now();
+      el.startBtn.disabled=true; el.stopBtn.disabled=false; el.resetBtn.disabled=false;
+      tick=setInterval(()=>{
+        const now=Date.now();
+        const total=elapsed+(now-startTime);
+        el.timer.textContent=fmt(total);
+        const minutes=Math.floor(total/60000);
+        const pct=Math.min(100,minutes/goal*100);
+        el.progressBar.style.width=pct+"%";
+        el.progressText.textContent=`${minutes} / ${goal} min`;
+      },1000);
+    }
+    function stopTimer(){
+      if(!timerRunning) return;
+      timerRunning=false; clearInterval(tick);
+      elapsed+=Date.now()-startTime;
+      el.startBtn.disabled=false; el.stopBtn.disabled=true;
+    }
+    function resetTimer(){
+      timerRunning=false; clearInterval(tick);
+      elapsed=0; el.timer.textContent="00:00:00";
+      el.progressBar.style.width="0%"; el.progressText.textContent=`0 / ${goal} min`;
+      el.startBtn.disabled=false; el.stopBtn.disabled=true; el.resetBtn.disabled=true;
+    }
+
+    el.startBtn.onclick=startTimer;
+    el.stopBtn.onclick=stopTimer;
+    el.resetBtn.onclick=resetTimer;
+
+    // Wetter laden
+    async function loadWeather(city){
+      try {
+        // 1. Geocoding
+        const geoRes=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1`);
+        const geoData=await geoRes.json();
+        if(!geoData.results || geoData.results.length===0){ el.advice.textContent="Ort nicht gefunden."; return; }
+        const {latitude,longitude} = geoData.results[0];
+
+        // 2. Wetter + UV
+        const url=`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weathercode,uv_index&timezone=auto`;
+        const res=await fetch(url);
+        const data=await res.json();
+        const temp=data.current.temperature_2m;
+        const uv=data.current.uv_index;
+        const code=data.current.weathercode;
+
+        el.temp.textContent=`${temp} °C`;
+        el.uv.textContent=uv.toFixed(1);
+        const weatherMap={
+          0:"Sonnig ☀️",1:"Überwiegend klar 🌤️",2:"Teilweise bewölkt ⛅",3
